@@ -1,0 +1,101 @@
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from shapely.geometry import LineString
+import contextily as ctx
+import mplleaflet
+import folium
+from qgis.core import *
+from qgis.gui import *
+from qgis.analysis import *
+
+from qgis.PyQt.QtCore import *
+from qgis.PyQt.QtGui import *
+
+vectorLayer = QgsVectorLayer('SeattleNetwork.gpkg')
+director = QgsVectorLayerDirector(vectorLayer, -1, '', '', '', QgsVectorLayerDirector.DirectionBoth)
+
+# Replace 'RoutingSp5' with the name of the field representing speed in the network layer
+speed_field_name = 'RoutingSp5'
+
+# Get the index of the speed field
+speed_field_index = vectorLayer.fields().indexFromName(speed_field_name)
+
+# Set the speed units and conversion factor
+speed_units = QgsUnitTypes.DistanceKilometers  # Adjust the units as needed
+speed_conversion = 1.0  # Adjust the conversion factor as needed
+
+strategy = QgsNetworkSpeedStrategy(speed_field_index, speed_units, speed_conversion)
+director.addStrategy(strategy)
+
+builder = QgsGraphBuilder(vectorLayer.sourceCrs())
+
+startPoint = QgsPointXY(-122.2944907,47.5912816)
+endPoint = QgsPointXY(-122.3675815,47.6605969)
+
+tiedPoints = director.makeGraph(builder, [startPoint, endPoint])
+tStart, tStop = tiedPoints
+
+graph = builder.graph()
+idxStart = graph.findVertex(tStart)
+idxEnd = graph.findVertex(tStop)
+
+(tree, costs) = QgsGraphAnalyzer.dijkstra(graph, idxStart, 0)
+
+if tree[idxEnd] == -1:
+    raise Exception('No route!')
+
+# Total cost
+cost = costs[idxEnd]
+
+# Add last point
+route = [graph.vertex(idxEnd).point()]
+
+# Iterate the graph
+while idxEnd != idxStart:
+    idxEnd = graph.edge(tree[idxEnd]).fromVertex()
+    route.insert(0, graph.vertex(idxEnd).point())
+    
+# Check if the route has at least two points
+if len(route) < 2:
+    raise ValueError('Route has less than two points')
+    
+# Convert the route to a GeoPandas DataFrame
+route_coords = [(point.x(), point.y()) for point in route]
+route_line = LineString(route_coords)
+route_gdf = gpd.GeoDataFrame(geometry=[route_line])
+    
+# my bm temp removed for folium map 
+# Add SeattleShape basemap
+# basemap_gdf = gpd.read_file('SeattleShape.gpkg')
+
+# Create the plot of the GeoDataFrame and basemap
+fig, ax = plt.subplots(figsize=(10, 10))
+# basemap_gdf.plot(ax=ax, facecolor='gray', edgecolor='gray')
+# gdf.plot(ax=ax)
+
+# Plot the route_gdf on top
+route_gdf.plot(ax=ax, color='red', linewidth=2)
+
+# Display the plot
+plt.show()
+
+# Displaying on folium 
+# Read the GeoDataFrames
+route_gdf = gpd.GeoDataFrame.from_features(route_gdf, crs='EPSG:4326')
+# basemap_gdf = gpd.read_file('SeattleShape.gpkg')
+
+# Convert the GeoDataFrames to GeoJSON
+route_geojson = route_gdf.to_crs('EPSG:4326').to_json()
+# basemap_geojson = basemap_gdf.to_crs('EPSG:4326').to_json()
+
+# Create a Folium map centered on Seattle
+m = folium.Map(location=[47.6062, -122.3321], zoom_start=12)
+
+# Add the basemap GeoJSON layer to the map
+# folium.GeoJson(basemap_geojson).add_to(m)
+
+# Add the route GeoJSON layer to the map
+folium.GeoJson(route_geojson, style_function=lambda x: {'color': 'red', 'weight': 2}).add_to(m)
+
+# Display the map
+m
