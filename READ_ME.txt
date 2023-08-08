@@ -1,3 +1,4 @@
+This app requires jupyter notebook to run.
 Libraries NEEDED to currently run the BikeRouter:
 geopandas matplotlib shapely folium qgis ipython ipyleaflet simplekml jupyter
 
